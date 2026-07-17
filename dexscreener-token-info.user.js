@@ -62,9 +62,7 @@ const openDashboard = () => {
 GM_registerMenuCommand('Open Project Checker Dashboard', openDashboard);
 
 const showPanel = (info) => {
-  document.querySelectorAll('.pc-token-panel').forEach(el => el.remove());
   const wrap = document.createElement('div');
-  wrap.className = 'pc-token-panel';
   wrap.style.cssText = 'position:fixed;top:10px;right:10px;background:#1a1a2e;color:#fff;padding:14px;border-radius:8px;z-index:9999;font-size:13px;min-width:220px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
   const close = document.createElement('button');
   close.textContent = '✕';
@@ -121,14 +119,15 @@ const showPanel = (info) => {
 };
 
 let injected = false;
-
-const cleanupUI = () => {
-  document.querySelectorAll('.pc-token-panel, #pc-settings-btn, #dex-copy-btn').forEach(el => el.remove());
-  injected = false;
-};
+let lastPath = location.pathname;
+setInterval(() => {
+  if (location.pathname !== lastPath) {
+    injected = false;
+    lastPath = location.pathname;
+  }
+}, 500);
 
 const tryInject = () => {
-  cleanupUI();
   if (injected) return;
   const els = document.querySelectorAll('.chakra-stack .custom-i33gp9');
   if (!els[1]) return;
@@ -139,10 +138,8 @@ const tryInject = () => {
 
   const apiUrl = `https://api.dexscreener.com/token-pairs/v1/${chain}/${title}`;
 
-  cleanupUI();
   // Settings gear button
   const settingsBtn = document.createElement('button');
-  settingsBtn.id = 'pc-settings-btn';
   settingsBtn.textContent = '⚙️';
   settingsBtn.style.cssText = 'position:fixed;bottom:20px;right:90px;z-index:9999;padding:6px 10px;cursor:pointer;font-size:14px;border-radius:6px;background:#222;border:1px solid #444;color:#fff;';
   settingsBtn.onclick = openDashboard;
