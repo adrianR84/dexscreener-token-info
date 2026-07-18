@@ -63,10 +63,10 @@ GM_registerMenuCommand('Open Project Checker Dashboard', openDashboard);
 
 const showPanel = (info) => {
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed;top:10px;right:10px;background:#1a1a2e;color:#fff;padding:14px;border-radius:8px;z-index:9999;font-size:13px;min-width:220px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
+  wrap.style.cssText = 'position:fixed;bottom:65px;right:20px;background:#1a1a2e;color:#fff;padding:14px;border-radius:8px;border:2px solid #fff;z-index:9998;font-size:13px;min-width:220px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
   const close = document.createElement('button');
   close.textContent = '✕';
-  close.style.cssText = 'position:absolute;top:6px;right:8px;background:none;border:none;color:#fff;cursor:pointer;font-size:14px;';
+  close.style.cssText = 'position:absolute;top:6px;right:8px;background:none;border:none;color:#fff;cursor:pointer;font-size:14px; font-weight:800;';
   close.onclick = () => wrap.remove();
   const pre = document.createElement('pre');
   pre.style.cssText = 'margin:0;line-height:1.5;overflow:auto;cursor:pointer;';
@@ -80,9 +80,49 @@ const showPanel = (info) => {
   wrap.appendChild(close);
   wrap.appendChild(pre);
   wrap.appendChild(respDiv);
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
   const addBtn = document.createElement('button');
-  addBtn.textContent = 'Add token to Project Checker';
-  addBtn.style.cssText = 'display:block;width:calc(100% - 16px);margin:10px 0 0 0;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#333;border:1px solid #555;color:#fff;';
+  addBtn.textContent = 'Add';
+  addBtn.style.cssText = 'flex:1;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#352;border:1px solid #463;color:#fff;';
+  const removeBtn = document.createElement('button');
+  removeBtn.textContent = 'Remove';
+  removeBtn.style.cssText = 'flex:1;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#522;border:1px solid #633;color:#fff;';
+  btnRow.appendChild(addBtn);
+  btnRow.appendChild(removeBtn);
+
+  removeBtn.onclick = () => {
+    const apiKey = GM_getValue('pcApiKey', '');
+    const apiUrl = GM_getValue('pcApiUrl', '');
+    if (!apiKey || !apiUrl) { openDashboard(); return; }
+    removeBtn.textContent = 'Removing...';
+    removeBtn.disabled = true;
+    fetch(`${apiUrl}/projects/remove`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ contractAddress: info.contractAddress, chainId: info.chainId, symbol: info.symbol }),
+    }).then(r => r.json()).then(res => {
+      respDiv.textContent = JSON.stringify(res);
+      GM_setValue('removedTokens', JSON.parse(GM_getValue('removedTokens', '[]')).concat([info.contractAddress]));
+      if (res?.deleted) {
+        removeBtn.textContent = '✅ Removed!';
+        setTimeout(() => wrap.remove(), 1000);
+      } else if (res?.errors?.length) {
+        removeBtn.textContent = '❌ ' + res.errors[0].error;
+        setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 3000);
+      } else {
+        removeBtn.textContent = '❌ Failed';
+        setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 2000);
+      }
+    }).catch((err) => {
+      respDiv.textContent = err.message || 'Request failed';
+      removeBtn.textContent = '❌ Failed';
+      setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 2000);
+    });
+  };
 
   addBtn.onclick = () => {
     const apiKey = GM_getValue('pcApiKey', '');
@@ -90,7 +130,7 @@ const showPanel = (info) => {
     if (!apiKey || !apiUrl) { openDashboard(); return; }
     addBtn.textContent = 'Sending...';
     addBtn.disabled = true;
-    fetch(`${apiUrl}`, {
+    fetch(`${apiUrl}/projects/import`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -109,12 +149,13 @@ const showPanel = (info) => {
         addBtn.textContent = '❌ Failed';
         setTimeout(() => { addBtn.textContent = 'Add token to Project Checker'; addBtn.disabled = false; }, 2000);
       }
-    }).catch(() => {
+    }).catch((err) => {
+      respDiv.textContent = err.message || 'Request failed';
       addBtn.textContent = '❌ Failed';
-      setTimeout(() => { addBtn.textContent = 'Add token to Project Checker'; addBtn.disabled = false; }, 2000);
+      setTimeout(() => { addBtn.textContent = 'Add token'; addBtn.disabled = false; }, 2000);
     });
   };
-  wrap.appendChild(addBtn);
+  wrap.appendChild(btnRow);
   document.body.appendChild(wrap);
 };
 
@@ -146,7 +187,7 @@ const tryInject = () => {
   document.body.appendChild(settingsBtn);
 
   const btn = document.createElement('button');
-  btn.textContent = '📋 Token Info';
+  btn.textContent = '📋 Project Checker';
   btn.id = 'dex-copy-btn';
   btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:6px 12px;cursor:pointer;font-size:13px;border-radius:6px;background:#222;border:1px solid #444;color:#fff;';
   btn.onclick = () => {
