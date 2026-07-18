@@ -9,15 +9,23 @@
 // @grant       GM_registerMenuCommand
 // @connect     *
 // @var          text   pcApiUrl   Project Checker URL    https://api.projectchecker.io
+// @var          text   pcApiUrl2  Project Checker URL 2
+// @var          checkbox pcApiUrlEnabled  Enable URL 1
+// @var          checkbox pcApiUrl2Enabled Enable URL 2
 // @var          text   pcApiKey   Project Checker API Key
 // ==/UserScript==
 
 GM_addStyle(`
   .pc-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99998;display:flex;align-items:center;justify-content:center;}
-  .pc-dashboard{background:#1a1a2e;color:#fff;padding:24px;border-radius:12px;min-width:320px;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.5);}
-  .pc-dashboard h2{margin:0 0 16px;font-size:16px;}
-  .pc-dashboard label{display:block;font-size:12px;margin-bottom:4px;color:#aaa;}
-  .pc-dashboard input{width:100%;padding:8px;margin-bottom:14px;background:#111;border:1px solid #333;color:#fff;border-radius:4px;box-sizing:border-box;}
+  .pc-dashboard{background:#1a1a2e;color:#fff;padding:24px;border-radius:12px;min-width:480px;max-width:560px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-size:14px;}
+  .pc-dashboard h2{margin:0 0 16px;font-size:18px;}
+  .pc-dashboard label{display:block;font-size:13px;margin-bottom:4px;color:#aaa;}
+  .pc-dashboard .url-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+  .pc-dashboard .url-row label{margin-bottom:0;white-space:nowrap;flex:none;}
+  .pc-dashboard .url-row input[type=checkbox]{flex:none;width:auto;}
+  .pc-dashboard .url-row input[type=text]{flex:1;padding:8px;background:#111;border:1px solid #333;color:#fff;border-radius:4px;box-sizing:border-box;}
+  .pc-dashboard .url-row input[type=text]:disabled{opacity:0.4;}
+  .pc-dashboard input[type=text],.pc-dashboard input[type=password]{width:100%;padding:8px;margin-bottom:14px;background:#111;border:1px solid #333;color:#fff;border-radius:4px;box-sizing:border-box;}
   .pc-dashboard input:focus{outline:none;border-color:#7af;}
   .pc-dashboard .btn-row{display:flex;gap:8px;}
   .pc-dashboard button{flex:1;padding:8px;cursor:pointer;border-radius:6px;font-size:13px;border:none;}
@@ -33,14 +41,27 @@ const openDashboard = () => {
 
   const savedKey = GM_getValue('pcApiKey', '');
   const savedUrl = GM_getValue('pcApiUrl', '');
+  const savedUrl2 = GM_getValue('pcApiUrl2', '');
+  const savedEnabled = GM_getValue('pcApiUrlEnabled', true);
+  const savedEnabled2 = GM_getValue('pcApiUrl2Enabled', false);
 
   overlay.innerHTML = `
     <div class="pc-dashboard">
       <h2>Project Checker Settings</h2>
       <label>Project Checker API Key</label>
-      <input type="password" id="pc-api-key" value="${savedKey}" placeholder="API Key">
-      <label>Project Checker URL</label>
-      <input type="text" id="pc-api-url" value="${savedUrl}" placeholder="https://api.projectchecker.io">
+      <div class="url-row">
+        <input type="password" id="pc-api-key" value="${savedKey}" placeholder="API Key">
+      </div>
+      <div class="url-row">
+        <input type="checkbox" id="pc-url-enabled" ${savedEnabled ? 'checked' : ''}>
+        <label for="pc-url-enabled">Enabled</label>
+        <input type="text" id="pc-api-url" value="${savedUrl}" placeholder="https://api.projectchecker.io">
+      </div>
+      <div class="url-row">
+        <input type="checkbox" id="pc-url2-enabled" ${savedEnabled2 ? 'checked' : ''}>
+        <label for="pc-url2-enabled">Enabled</label>
+        <input type="text" id="pc-api-url2" value="${savedUrl2}" placeholder="https://api.projectchecker.io">
+      </div>
       <div class="btn-row">
         <button class="pc-cancel" id="pc-cancel">Cancel</button>
         <button class="pc-save" id="pc-save">Save</button>
@@ -50,10 +71,21 @@ const openDashboard = () => {
 
   document.body.appendChild(overlay);
 
+  const updateUrlState = () => {
+    document.getElementById('pc-api-url').disabled = !document.getElementById('pc-url-enabled').checked;
+    document.getElementById('pc-api-url2').disabled = !document.getElementById('pc-url2-enabled').checked;
+  };
+  document.getElementById('pc-url-enabled').addEventListener('change', updateUrlState);
+  document.getElementById('pc-url2-enabled').addEventListener('change', updateUrlState);
+  updateUrlState();
+
   document.getElementById('pc-cancel').onclick = () => overlay.remove();
   document.getElementById('pc-save').onclick = () => {
     GM_setValue('pcApiKey', document.getElementById('pc-api-key').value);
     GM_setValue('pcApiUrl', document.getElementById('pc-api-url').value);
+    GM_setValue('pcApiUrl2', document.getElementById('pc-api-url2').value);
+    GM_setValue('pcApiUrlEnabled', document.getElementById('pc-url-enabled').checked);
+    GM_setValue('pcApiUrl2Enabled', document.getElementById('pc-url2-enabled').checked);
     overlay.remove();
   };
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -93,25 +125,35 @@ const showPanel = (info) => {
 
   removeBtn.onclick = () => {
     const apiKey = GM_getValue('pcApiKey', '');
-    const apiUrl = GM_getValue('pcApiUrl', '');
-    if (!apiKey || !apiUrl) { openDashboard(); return; }
+    const buildUrls = () => {
+      const urls = [];
+      if (GM_getValue('pcApiUrlEnabled', true)) urls.push(GM_getValue('pcApiUrl', '').replace(/\/$/, ''));
+      if (GM_getValue('pcApiUrl2Enabled', false)) urls.push(GM_getValue('pcApiUrl2', '').replace(/\/$/, ''));
+      return urls.filter(u => u);
+    };
+    const urls = buildUrls();
+    if (!apiKey || !urls.length) { openDashboard(); return; }
     removeBtn.textContent = 'Removing...';
     removeBtn.disabled = true;
-    fetch(`${apiUrl}/projects/remove`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ contractAddress: info.contractAddress, chainId: info.chainId, symbol: info.symbol }),
-    }).then(r => r.json()).then(res => {
-      respDiv.textContent = JSON.stringify(res);
-      GM_setValue('removedTokens', JSON.parse(GM_getValue('removedTokens', '[]')).concat([info.contractAddress]));
-      if (res?.deleted) {
+    Promise.all(urls.map(url =>
+      fetch(`${url}/api/v1/projects/remove`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ contractAddress: info.contractAddress, chainId: info.chainId, symbol: info.symbol }),
+      }).then(r => r.json())
+    )).then(results => {
+      respDiv.textContent = JSON.stringify(results);
+      const allDeleted = results.every(r => r?.deleted);
+      const firstError = results.find(r => r?.errors?.length)?.errors[0].error;
+      if (allDeleted) {
+        GM_setValue('removedTokens', JSON.parse(GM_getValue('removedTokens', '[]')).concat([info.contractAddress]));
         removeBtn.textContent = '✅ Removed!';
         setTimeout(() => wrap.remove(), 1000);
-      } else if (res?.errors?.length) {
-        removeBtn.textContent = '❌ ' + res.errors[0].error;
+      } else if (firstError) {
+        removeBtn.textContent = '❌ ' + firstError;
         setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 3000);
       } else {
         removeBtn.textContent = '❌ Failed';
@@ -126,33 +168,43 @@ const showPanel = (info) => {
 
   addBtn.onclick = () => {
     const apiKey = GM_getValue('pcApiKey', '');
-    const apiUrl = GM_getValue('pcApiUrl', '');
-    if (!apiKey || !apiUrl) { openDashboard(); return; }
+    const buildUrls = () => {
+      const urls = [];
+      if (GM_getValue('pcApiUrlEnabled', true)) urls.push(GM_getValue('pcApiUrl', '').replace(/\/$/, ''));
+      if (GM_getValue('pcApiUrl2Enabled', false)) urls.push(GM_getValue('pcApiUrl2', '').replace(/\/$/, ''));
+      return urls.filter(u => u);
+    };
+    const urls = buildUrls();
+    if (!apiKey || !urls.length) { openDashboard(); return; }
     addBtn.textContent = 'Sending...';
     addBtn.disabled = true;
-    fetch(`${apiUrl}/projects/import`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(info),
-    }).then(r => r.json()).then(res => {
-      respDiv.textContent = JSON.stringify(res);
-      if (res?.created?.length) {
+    Promise.all(urls.map(url =>
+      fetch(`${url}/api/v1/projects/import`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(info),
+      }).then(r => r.json())
+    )).then(results => {
+      respDiv.textContent = JSON.stringify(results);
+      const anyAdded = results.some(r => r?.created?.length);
+      const firstError = results.find(r => r?.errors?.length)?.errors[0].error;
+      if (anyAdded) {
         addBtn.textContent = '✅ Added!';
         setTimeout(() => wrap.remove(), 1000);
-      } else if (res?.errors?.length) {
-        addBtn.textContent = '❌ ' + res.errors[0].error;
-        setTimeout(() => { addBtn.textContent = 'Add token to Project Checker'; addBtn.disabled = false; }, 3000);
+      } else if (firstError) {
+        addBtn.textContent = '❌ ' + firstError;
+        setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 3000);
       } else {
         addBtn.textContent = '❌ Failed';
-        setTimeout(() => { addBtn.textContent = 'Add token to Project Checker'; addBtn.disabled = false; }, 2000);
+        setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 2000);
       }
     }).catch((err) => {
       respDiv.textContent = err.message || 'Request failed';
       addBtn.textContent = '❌ Failed';
-      setTimeout(() => { addBtn.textContent = 'Add token'; addBtn.disabled = false; }, 2000);
+      setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 2000);
     });
   };
   wrap.appendChild(btnRow);
