@@ -93,122 +93,98 @@ const openDashboard = () => {
 
 GM_registerMenuCommand('Open Project Checker Dashboard', openDashboard);
 
+const safeJson = (text) => {
+  if (!text) return null;
+  const i = text.lastIndexOf('}');
+  if (i > 0) text = text.slice(0, i + 1);
+  try { return JSON.parse(text); } catch { return null; }
+};
+
+const buildUrls = () => {
+  const urls = [];
+  if (GM_getValue('pcApiUrlEnabled', true)) urls.push(GM_getValue('pcApiUrl', '').replace(/\/$/, ''));
+  if (GM_getValue('pcApiUrl2Enabled', false)) urls.push(GM_getValue('pcApiUrl2', '').replace(/\/$/, ''));
+  return urls.filter(u => u);
+};
+
+const gmFetch = (url, opts) => new Promise((resolve, reject) => {
+  GM_xmlhttpRequest({
+    method: opts.method,
+    url,
+    headers: opts.headers,
+    data: opts.body,
+    onload: (r) => resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, text: r.responseText || '' }),
+    onerror: () => reject(new Error('Network error')),
+    ontimeout: () => reject(new Error('Timeout')),
+  });
+});
+
 const showPanel = (info) => {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:fixed;bottom:65px;right:20px;background:#1a1a2e;color:#fff;padding:14px;border-radius:8px;border:2px solid #fff;z-index:9998;font-size:13px;min-width:220px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
-  const close = document.createElement('button');
-  close.textContent = '✕';
-  close.style.cssText = 'position:absolute;top:6px;right:8px;background:none;border:none;color:#fff;cursor:pointer;font-size:14px; font-weight:800;';
-  close.onclick = () => wrap.remove();
-  const pre = document.createElement('pre');
-  pre.style.cssText = 'margin:0;line-height:1.5;overflow:auto;cursor:pointer;';
-  pre.textContent = JSON.stringify(info, null, 2);
-  const respDiv = document.createElement('div');
-  respDiv.style.cssText = 'margin-top:8px;font-size:11px;word-break:break-all;';
-  pre.onclick = () => {
-    GM_setClipboard(JSON.stringify(info));
-    respDiv.textContent = '✅ Copied to clipboard!';
-  };
-  wrap.appendChild(close);
-  wrap.appendChild(pre);
-  wrap.appendChild(respDiv);
-  const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
-  const addBtn = document.createElement('button');
-  addBtn.textContent = 'Add';
-  addBtn.style.cssText = 'flex:1;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#352;border:1px solid #463;color:#fff;';
-  const removeBtn = document.createElement('button');
-  removeBtn.textContent = 'Remove';
-  removeBtn.style.cssText = 'flex:1;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#522;border:1px solid #633;color:#fff;';
-  btnRow.appendChild(addBtn);
-  btnRow.appendChild(removeBtn);
+  wrap.innerHTML = `
+    <button id="pc-close" style="position:absolute;top:6px;right:8px;background:none;border:none;color:#fff;cursor:pointer;font-size:14px;font-weight:800;">✕</button>
+    <pre id="pc-json" style="margin:0;line-height:1.5;overflow:auto;cursor:pointer;"></pre>
+    <div id="pc-resp" style="margin-top:8px;font-size:11px;word-break:break-all;"></div>
+    <div id="pc-btns" style="display:flex;gap:8px;margin-top:10px;">
+      <button id="pc-add" style="flex:1;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#352;border:1px solid #463;color:#fff;">Add</button>
+      <button id="pc-remove" style="flex:1;padding:6px;cursor:pointer;font-size:12px;border-radius:4px;background:#522;border:1px solid #633;color:#fff;">Remove</button>
+    </div>
+  `;
+  document.body.appendChild(wrap);
 
-  removeBtn.onclick = () => {
+  const respDiv = document.getElementById('pc-resp');
+  const jsonPre = document.getElementById('pc-json');
+  const addBtn = document.getElementById('pc-add');
+  const removeBtn = document.getElementById('pc-remove');
+
+  jsonPre.textContent = JSON.stringify(info, null, 2);
+  jsonPre.onclick = () => { GM_setClipboard(JSON.stringify(info)); respDiv.textContent = '✅ Copied!'; };
+  document.getElementById('pc-close').onclick = () => wrap.remove();
+
+  const doReq = (path, method, body) => {
     const apiKey = GM_getValue('pcApiKey', '');
-    const buildUrls = () => {
-      const urls = [];
-      if (GM_getValue('pcApiUrlEnabled', true)) urls.push(GM_getValue('pcApiUrl', '').replace(/\/$/, ''));
-      if (GM_getValue('pcApiUrl2Enabled', false)) urls.push(GM_getValue('pcApiUrl2', '').replace(/\/$/, ''));
-      return urls.filter(u => u);
-    };
     const urls = buildUrls();
     if (!apiKey || !urls.length) { openDashboard(); return; }
+    return Promise.all(urls.map(url =>
+      gmFetch(`${url}/api/v1/${path}`, { method, headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body })
+        .then(r => { if (!r.ok) return { error: `HTTP ${r.status}` }; return safeJson(r.text) || { error: 'Bad JSON' }; })
+    ));
+  };
+
+  removeBtn.onclick = () => {
     removeBtn.textContent = 'Removing...';
     removeBtn.disabled = true;
-    Promise.all(urls.map(url =>
-      fetch(`${url}/api/v1/projects/remove`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ contractAddress: info.contractAddress, chainId: info.chainId, symbol: info.symbol }),
-      }).then(r => r.json())
-    )).then(results => {
-      respDiv.textContent = JSON.stringify(results);
-      const allDeleted = results.every(r => r?.deleted);
-      const firstError = results.find(r => r?.errors?.length)?.errors[0].error;
-      if (allDeleted) {
-        GM_setValue('removedTokens', JSON.parse(GM_getValue('removedTokens', '[]')).concat([info.contractAddress]));
-        removeBtn.textContent = '✅ Removed!';
-        setTimeout(() => wrap.remove(), 1000);
-      } else if (firstError) {
-        removeBtn.textContent = '❌ ' + firstError;
-        setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 3000);
-      } else {
-        removeBtn.textContent = '❌ Failed';
-        setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 2000);
-      }
-    }).catch((err) => {
-      respDiv.textContent = err.message || 'Request failed';
-      removeBtn.textContent = '❌ Failed';
-      setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 2000);
-    });
+    doReq('projects/remove', 'DELETE', JSON.stringify({ contractAddress: info.contractAddress, chainId: info.chainId, symbol: info.symbol }))
+      .then(results => {
+        respDiv.textContent = JSON.stringify(results);
+        if (results.every(r => r?.ok)) {
+          removeBtn.textContent = '✅ Removed!';
+          setTimeout(() => wrap.remove(), 1000);
+        } else {
+          const err = results.find(r => r?.error)?.error || 'Failed';
+          removeBtn.textContent = '❌ ' + err;
+          setTimeout(() => { removeBtn.textContent = 'Remove'; removeBtn.disabled = false; }, 3000);
+        }
+      }).catch(err => { respDiv.textContent = err.message; removeBtn.textContent = '❌ Failed'; removeBtn.disabled = false; });
   };
 
   addBtn.onclick = () => {
-    const apiKey = GM_getValue('pcApiKey', '');
-    const buildUrls = () => {
-      const urls = [];
-      if (GM_getValue('pcApiUrlEnabled', true)) urls.push(GM_getValue('pcApiUrl', '').replace(/\/$/, ''));
-      if (GM_getValue('pcApiUrl2Enabled', false)) urls.push(GM_getValue('pcApiUrl2', '').replace(/\/$/, ''));
-      return urls.filter(u => u);
-    };
-    const urls = buildUrls();
-    if (!apiKey || !urls.length) { openDashboard(); return; }
     addBtn.textContent = 'Sending...';
     addBtn.disabled = true;
-    Promise.all(urls.map(url =>
-      fetch(`${url}/api/v1/projects/import`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(info),
-      }).then(r => r.json())
-    )).then(results => {
-      respDiv.textContent = JSON.stringify(results);
-      const anyAdded = results.some(r => r?.created?.length);
-      const firstError = results.find(r => r?.errors?.length)?.errors[0].error;
-      if (anyAdded) {
-        addBtn.textContent = '✅ Added!';
-        setTimeout(() => wrap.remove(), 1000);
-      } else if (firstError) {
-        addBtn.textContent = '❌ ' + firstError;
-        setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 3000);
-      } else {
-        addBtn.textContent = '❌ Failed';
-        setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 2000);
-      }
-    }).catch((err) => {
-      respDiv.textContent = err.message || 'Request failed';
-      addBtn.textContent = '❌ Failed';
-      setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 2000);
-    });
+    doReq('projects/import', 'POST', JSON.stringify(info))
+      .then(results => {
+        respDiv.textContent = JSON.stringify(results);
+        if (results.some(r => r?.created?.length)) {
+          addBtn.textContent = '✅ Added!';
+          setTimeout(() => wrap.remove(), 1000);
+        } else {
+          const err = results.find(r => r?.errors?.length)?.errors[0].error || 'Failed';
+          addBtn.textContent = '❌ ' + err;
+          setTimeout(() => { addBtn.textContent = 'Add'; addBtn.disabled = false; }, 3000);
+        }
+      }).catch(err => { respDiv.textContent = err.message; addBtn.textContent = '❌ Failed'; addBtn.disabled = false; });
   };
-  wrap.appendChild(btnRow);
-  document.body.appendChild(wrap);
 };
 
 let injected = false;
@@ -243,21 +219,27 @@ const tryInject = () => {
   btn.id = 'dex-copy-btn';
   btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:6px 12px;cursor:pointer;font-size:13px;border-radius:6px;background:#222;border:1px solid #444;color:#fff;';
   btn.onclick = () => {
-    fetch(apiUrl).then(r => r.json()).then(data => {
-      const p = Array.isArray(data) ? data[0] : data?.data?.[0];
-      const socials = (p?.info?.socials || []);
-      const twitterUrl = socials.find(s => s.type === 'twitter')?.url;
-      const telegramUrl = socials.find(s => s.type === 'telegram')?.url;
-      showPanel({
-        name: p?.baseToken?.name,
-        symbol: p?.baseToken?.symbol,
-        contractAddress: p?.baseToken?.address,
-        chainId: chain,
-        website: p?.info?.websites?.[0]?.url,
-        twitter: twitterUrl,
-        telegram: telegramUrl,
-      });
-      GM_setClipboard(title);
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: apiUrl,
+      onload: (r) => {
+        let data;
+        try { data = JSON.parse(r.responseText); } catch { data = null; }
+        const p = Array.isArray(data) ? data[0] : data?.data?.[0];
+        const socials = (p?.info?.socials || []);
+        const twitterUrl = socials.find(s => s.type === 'twitter')?.url;
+        const telegramUrl = socials.find(s => s.type === 'telegram')?.url;
+        showPanel({
+          name: p?.baseToken?.name,
+          symbol: p?.baseToken?.symbol,
+          contractAddress: p?.baseToken?.address,
+          chainId: chain,
+          website: p?.info?.websites?.[0]?.url,
+          twitter: twitterUrl,
+          telegram: telegramUrl,
+        });
+        GM_setClipboard(title);
+      },
     });
   };
   document.body.appendChild(btn);
@@ -273,3 +255,4 @@ tryInject();
 document.addEventListener('keydown', (e) => {
   if (e.shiftKey && e.key === 'S') openDashboard();
 });
+
