@@ -33,8 +33,6 @@ GM_addStyle(`
   .pc-cancel{background:#333;color:#fff;}
 `);
 
-const chain = location.pathname.split('/')[1];
-
 const openDashboard = () => {
   const overlay = document.createElement('div');
   overlay.className = 'pc-overlay';
@@ -200,12 +198,8 @@ const tryInject = () => {
   if (injected) return;
   const els = document.querySelectorAll('.chakra-stack .custom-i33gp9');
   if (!els[1]) return;
-
-  const title = els[1].querySelector('span')?.title;
-  if (!title) return;
+  if (!els[1].querySelector('span')?.title) return;
   injected = true;
-
-  const apiUrl = `https://api.dexscreener.com/token-pairs/v1/${chain}/${title}`;
 
   // Settings gear button
   const settingsBtn = document.createElement('button');
@@ -219,9 +213,14 @@ const tryInject = () => {
   btn.id = 'dex-copy-btn';
   btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:6px 12px;cursor:pointer;font-size:13px;border-radius:6px;background:#222;border:1px solid #444;color:#fff;';
   btn.onclick = () => {
+    const pageChain = location.pathname.split('/')[1];
+    const els = document.querySelectorAll('.chakra-stack .custom-i33gp9');
+    const tokenTitle = els[1]?.querySelector('span')?.title;
+    if (!tokenTitle) return;
+    const pageApiUrl = `https://api.dexscreener.com/token-pairs/v1/${pageChain}/${tokenTitle}`;
     GM_xmlhttpRequest({
       method: 'GET',
-      url: apiUrl,
+      url: pageApiUrl,
       onload: (r) => {
         let data;
         try { data = JSON.parse(r.responseText); } catch { data = null; }
@@ -233,12 +232,12 @@ const tryInject = () => {
           name: p?.baseToken?.name,
           symbol: p?.baseToken?.symbol,
           contractAddress: p?.baseToken?.address,
-          chainId: chain,
+          chainId: pageChain,
           website: p?.info?.websites?.[0]?.url,
           twitter: twitterUrl,
           telegram: telegramUrl,
         });
-        GM_setClipboard(title);
+        GM_setClipboard(tokenTitle);
       },
     });
   };
