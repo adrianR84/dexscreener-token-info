@@ -196,9 +196,10 @@ setInterval(() => {
 
 const tryInject = () => {
   if (injected) return;
+  const pageChain = location.pathname.split('/')[1];
+  const idx = pageChain === 'near' ? 0 : 1;
   const els = document.querySelectorAll('.chakra-stack .custom-i33gp9');
-  if (!els[1]) return;
-  if (!els[1].querySelector('span')?.title) return;
+  if (!els[idx]?.querySelector('span')?.title) return;
   injected = true;
 
   // Settings gear button
@@ -214,8 +215,9 @@ const tryInject = () => {
   btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:6px 12px;cursor:pointer;font-size:13px;border-radius:6px;background:#222;border:1px solid #444;color:#fff;';
   btn.onclick = () => {
     const pageChain = location.pathname.split('/')[1];
+    const idx = pageChain === 'near' ? 0 : 1;
     const els = document.querySelectorAll('.chakra-stack .custom-i33gp9');
-    const tokenTitle = els[1]?.querySelector('span')?.title;
+    const tokenTitle = els[idx]?.querySelector('span')?.title;
     if (!tokenTitle) return;
     const pageApiUrl = `https://api.dexscreener.com/token-pairs/v1/${pageChain}/${tokenTitle}`;
     GM_xmlhttpRequest({
